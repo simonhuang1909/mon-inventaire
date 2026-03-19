@@ -8,14 +8,29 @@
   "theme_color": "#1d4ed8",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "./icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "icon-512.png",
+      "src": "./icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "./screenshot-mobile.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "label": "Vue mobile de l'inventaire"
+    },
+    {
+      "src": "./screenshot-desktop.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Vue ordinateur de l'inventaire"
     }
   ]
 }
