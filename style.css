@@ -1,0 +1,27 @@
+/* style.css */
+body { 
+    font-family: system-ui, -apple-system, sans-serif; 
+}
+
+[v-cloak] { 
+    display: none !important; 
+}
+
+.modale-ouverte { 
+    overflow: hidden; 
+}
+
+.flatpickr-input:focus { 
+    outline: 2px solid #3b82f6; 
+    border-color: transparent; 
+}
+
+.sortable-ghost { 
+    opacity: 0.4; 
+    background-color: #eff6ff; 
+}
+
+.sortable-drag { 
+    cursor: grabbing !important; 
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); 
+}

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion d'Inventaire Sécurisée</title>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1d4ed8">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/fr.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col" :class="{'modale-ouverte': afficherModaleCreation || afficherModaleLot || afficherModaleSuppression || afficherModaleSuppressionProfil || afficherModaleErreurSuppression || afficherModaleEdition}">
+
+    <div id="app" v-cloak class="flex flex-col flex-grow">
+
+        <div v-if="!estDeverrouille" class="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+            <div class="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full border border-slate-200">
+                <div class="flex justify-center mb-4 text-blue-600">
+                    <svg v-if="estNouveauCoffre && !verificationInitialeEnCours" class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    <svg v-else class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                </div>
+                
+                <div v-if="verificationInitialeEnCours" class="text-center py-4">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-2">Connexion...</h2>
+                    <p class="text-sm text-slate-500 animate-pulse">Vérification de la base de données.</p>
+                </div>
+
+                <div v-else>
+                    <h2 class="text-2xl font-bold text-center text-slate-800 mb-2">
+                        {{ estNouveauCoffre ? 'Nouveau Coffre' : 'Coffre-fort' }}
+                    </h2>
+                    <p class="text-sm text-center text-slate-500 mb-6">
+                        {{ estNouveauCoffre ? 'Configurez votre espace de stockage chiffré.' : 'Entrez la clé maître pour déchiffrer votre inventaire.' }}
+                    </p>
+                    
+                    <div v-if="erreurConfiguration" class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm mb-4 font-medium text-center">
+                        ⚠️ {{ erreurConfiguration }}
+                    </div>
+
+                    <form @submit.prevent="deverrouillerCoffre">
+                        <div v-if="estNouveauCoffre" class="mb-4">
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Nom de l'inventaire</label>
+                            <input v-model="formNomInventaire" type="text" placeholder="Ex: Stock Épicerie, Matériel..." required class="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        </div>
+
+                        <div class="mb-4">
+                            <label v-if="estNouveauCoffre" class="block text-xs font-semibold text-slate-700 mb-1">Mot de passe maître</label>
+                            <input v-model="motDePasseSaisi" type="password" :placeholder="estNouveauCoffre ? 'Créez un mot de passe...' : 'Mot de passe...'" class="w-full border border-slate-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        </div>
+                        
+                        <div v-if="estNouveauCoffre" class="mb-5">
+                            <input v-model="motDePasseConfirmation" type="password" placeholder="Confirmez le mot de passe..." class="w-full border border-slate-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        </div>
+                        
+                        <button type="submit" :disabled="chargementEnCours || erreurConfiguration !== '' || (estNouveauCoffre && (!motDePasseConfirmation || !formNomInventaire))" class="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 disabled:opacity-50">
+                            <span v-if="!chargementEnCours">
+                                {{ estNouveauCoffre ? 'Créer et chiffrer' : 'Ouvrir le coffre' }}
+                            </span>
+                            <span v-else>Traitement...</span>
+                        </button>
+                    </form>
+                    <p v-if="erreurMotDePasse" class="mt-4 text-sm text-center text-red-600 font-semibold">{{ erreurMotDePasse }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div v-else-if="estDeverrouille && !utilisateurCourant" class="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+            <div class="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full border border-slate-200">
+                <h2 class="text-2xl font-bold text-center text-slate-800 mb-6">Qui êtes-vous ?</h2>
+                
+                <div v-if="utilisateurs.length > 0" class="space-y-3 mb-6 max-h-60 overflow-y-auto pr-1">
+                    <div v-for="u in utilisateurs" :key="u.nom" class="flex items-center gap-2 group/profil">
+                        <button @click="choisirUtilisateur(u.nom)" class="flex-grow py-3 px-4 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 border border-slate-200 rounded-lg text-left font-semibold text-slate-700 hover:text-blue-800 transition-colors flex items-center gap-3 group">
+                            <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-lg group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0">
+                                {{ u.nom.charAt(0).toUpperCase() }}
+                            </div>
+                            <span class="truncate">{{ u.nom }}</span>
+                        </button>
+                        
+                        <button @click.stop="supprimerUtilisateur(u.nom)" class="p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-200 transition-all opacity-0 group-hover/profil:opacity-100 focus:opacity-100 shrink-0" title="Supprimer ce profil">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </div>
+                </div>
+                <div v-else class="text-center text-sm text-slate-500 mb-6 italic">
+                    Aucun profil n'existe encore dans ce coffre.
+                </div>
+                
+                <div class="border-t border-slate-100 pt-6">
+                    <label class="block text-xs font-semibold text-slate-700 mb-2">Créer un nouveau profil</label>
+                    <div class="flex gap-2">
+                        <input v-model="nouveauNomUtilisateur" type="text" placeholder="Votre prénom..." @keyup.enter="creerUtilisateur" class="flex-grow border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <button @click="creerUtilisateur" :disabled="!nouveauNomUtilisateur.trim()" class="bg-blue-700 hover:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50">Créer</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <template v-else>
+            <header class="bg-white border-b border-slate-200 sticky top-0 z-20">
+                <div class="max-w-3xl mx-auto w-full px-4 py-2 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-6 h-6 text-blue-700 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                        <div class="flex flex-col">
+                            <h1 class="font-bold text-lg tracking-tight text-slate-900 leading-tight">{{ nomInventaire }}</h1>
+                            <button @click="utilisateurCourant = null" class="text-[10px] font-medium text-slate-500 hover:text-blue-700 text-left flex items-center gap-1 transition-colors w-fit">
+                                👤 {{ utilisateurCourant }} (Changer de profil)
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center gap-2">
+                        <button @click="genererPDF" class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold border border-slate-300 rounded hover:bg-slate-100 transition-colors text-slate-700 bg-white">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            PDF
+                        </button>
+
+                        <div class="flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded border transition-colors hidden sm:flex" 
+                             :class="statutSauvegarde === 'À jour' ? 'bg-green-50 text-green-700 border-green-200' : (statutSauvegarde === 'Synchro en cours...' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-orange-50 text-orange-700 border-orange-200')">
+                            <span v-if="statutSauvegarde === 'À jour'">☁️ À jour</span>
+                            <span v-else-if="statutSauvegarde === 'Synchro en cours...'">⚡ Synchro...</span>
+                            <span v-else>🔄 Sauvegarde...</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <div class="bg-white border-b border-slate-200 shadow-sm z-10 sticky top-[53px]">
+                <div class="max-w-3xl mx-auto w-full px-4 py-2.5 flex items-center gap-2 text-sm text-slate-500 overflow-x-auto">
+                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                    <span @click="allerAccueil" class="cursor-pointer hover:text-blue-700 hover:underline flex-shrink-0" :class="{'font-bold text-slate-800': dossierActuel === null}">Accueil</span> 
+                    <template v-for="dossier in filAriane" :key="dossier.id">
+                        <span class="text-slate-300 flex-shrink-0">/</span> 
+                        <span @click="ouvrirDossier(dossier.id)" class="cursor-pointer hover:text-blue-700 hover:underline flex-shrink-0" :class="{'font-bold text-slate-800': dossierActuel === dossier.id}">{{ dossier.nom }}</span>
+                    </template>
+                </div>
+            </div>
+
+            <main class="flex-grow max-w-3xl mx-auto w-full px-4 py-6">
+
+                <div v-if="dossierActuel === null" class="mb-8">
+                    
+                    <div v-if="elementsFavoris.length > 0" class="mb-8">
+                        <h2 class="text-sm uppercase tracking-wider font-bold text-slate-400 mb-3 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                            Mes Favoris
+                        </h2>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div v-for="fav in elementsFavoris" :key="'fav_'+fav.id" @click="allerVersFavori(fav)" class="bg-white border border-slate-200 rounded-lg p-3 flex items-center gap-3 cursor-pointer hover:border-yellow-400 hover:shadow-md transition-all group">
+                                <div class="p-1.5 rounded-md shrink-0" :class="fav.type === 'dossier' ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-500'">
+                                    <svg v-if="fav.type === 'dossier'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                                    <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                                </div>
+                                <div class="flex-grow overflow-hidden">
+                                    <h3 class="font-semibold text-slate-800 text-sm truncate group-hover:text-blue-700">{{ fav.nom }}</h3>
+                                    <p v-if="fav.type === 'produit'" class="text-[10px] text-slate-500">Stock total: {{ getQuantiteTotale(fav.id) }}</p>
+                                    <p v-else class="text-[10px] text-slate-500">Dossier</p>
+                                </div>
+                                <button @click.stop="basculerFavori(fav.id)" class="text-yellow-400 p-1 hover:scale-110 transition-transform shrink-0" title="Retirer des favoris">
+                                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="alertesStock.length > 0 || alertesPeremption.length > 0" class="mb-8">
+                        <h2 class="text-sm uppercase tracking-wider font-bold text-slate-400 mb-3 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Action requise
+                        </h2>
+                        
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div v-if="alertesStock.length > 0" class="bg-orange-50/80 border border-orange-200 rounded-xl p-4 shadow-sm">
+                                <div class="flex items-center gap-2 mb-3 text-orange-800">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                    <h3 class="font-bold text-sm">Stock critique</h3>
+                                </div>
+                                <ul class="space-y-2">
+                                    <li v-for="prod in alertesStock" :key="'alert_stock_'+prod.id" @click="allerVersProduit(prod.id, prod.parentId)" class="flex items-center justify-between bg-white rounded border border-orange-100 p-2.5 shadow-sm text-sm cursor-pointer hover:border-orange-300 hover:bg-orange-50 transition-colors group">
+                                        <span class="font-semibold text-slate-800 truncate pr-2 group-hover:text-orange-700">{{ prod.nom }}</span>
+                                        <div class="flex items-center gap-2">
+                                            <span class="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs font-bold shrink-0">{{ getQuantiteTotale(prod.id) }} / {{ prod.seuil }}</span>
+                                            <svg class="w-4 h-4 text-orange-300 group-hover:text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                                        </div>
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <div v-if="alertesPeremption.length > 0" class="bg-red-50/80 border border-red-200 rounded-xl p-4 shadow-sm">
+                                <div class="flex items-center gap-2 mb-3 text-red-800">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    <h3 class="font-bold text-sm">Périmés ou à vérifier</h3>
+                                </div>
+                                <ul class="space-y-2">
+                                    <li v-for="lot in alertesPeremption" :key="'alert_perem_'+lot.id" @click="allerVersProduit(lot.parentId, lot.dossierParentId)" class="flex items-center justify-between bg-white rounded border border-red-100 p-2.5 shadow-sm text-sm cursor-pointer hover:border-red-300 hover:bg-red-50 transition-colors group">
+                                        <div class="flex flex-col overflow-hidden">
+                                            <span class="font-semibold text-slate-800 truncate group-hover:text-red-700">{{ lot.nomProduit }}</span>
+                                            <span class="text-[10px] text-slate-500 truncate">{{ lot.nom ? lot.nom + ' (' + lot.quantite + ' unités)' : 'Lot de ' + lot.quantite + ' unités' }}</span>
+                                        </div>
+                                        <div class="flex items-center gap-2 shrink-0">
+                                            <span class="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-bold">{{ formaterDate(lot.datePeremption) }}</span>
+                                            <svg class="w-4 h-4 text-red-300 group-hover:text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                                        </div>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-end mb-4">
+                    <div>
+                        <h2 v-if="dossierActuel !== null" class="text-xl font-bold text-slate-900">{{ nomDossierCourant }}</h2>
+                        <h2 v-else class="text-lg font-bold text-slate-800">Racine</h2>
+                        <p class="text-xs text-slate-500 mt-0.5">{{ elementsCourants.length }} élément(s) - Clic long pour ranger</p>
+                    </div>
+                    <button @click="ouvrirModaleCreation" class="bg-blue-700 hover:bg-blue-800 text-white px-3 py-1.5 text-sm font-semibold shadow-sm flex items-center gap-2 transition-colors rounded-md shrink-0">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        Nouveau
+                    </button>
+                </div>
+
+                <div ref="zoneGlissante" class="bg-white border border-slate-200 rounded-lg shadow-sm divide-y divide-slate-100 flex flex-col min-h-[50px]">
+                    <template v-for="element in elementsCourants" :key="element.id">
+                        
+                        <div v-if="element.type === 'dossier'" @click="ouvrirDossier(element.id)" class="flex items-center p-3 hover:bg-slate-50 transition-colors cursor-pointer group bg-white">
+                            <div class="poignee-drag cursor-grab p-1 mr-1 text-slate-300 hover:text-slate-500" @click.stop><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"></path></svg></div>
+                            <div class="p-1.5 bg-slate-100 text-slate-500 rounded-md mr-3"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg></div>
+                            <div class="flex-grow flex items-center justify-between">
+                                <h3 class="font-semibold text-slate-800 text-sm group-hover:text-blue-700">{{ element.nom }}</h3>
+                                <svg class="w-4 h-4 text-slate-300 group-hover:text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            </div>
+                            
+                            <div class="flex items-center gap-1">
+                                <button @click.stop="basculerFavori(element.id)" class="p-1.5 transition-colors rounded hover:bg-slate-100" :class="estFavori(element.id) ? 'text-yellow-400' : 'text-slate-300 hover:text-yellow-400'" title="Favori">
+                                    <svg v-if="estFavori(element.id)" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                                    <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path></svg>
+                                </button>
+
+                                <button @click.stop="ouvrirModaleEdition(element)" class="text-slate-300 hover:text-blue-600 p-1.5 transition-colors rounded hover:bg-blue-50" title="Modifier">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                </button>
+
+                                <button @click.stop="ouvrirModaleSuppression(element.id)" class="text-slate-300 hover:text-red-600 p-1.5 transition-colors rounded hover:bg-red-50" title="Supprimer">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div v-else-if="element.type === 'produit' && produitOuvert !== element.id" @click="basculerProduit(element.id)" class="flex items-center p-3 hover:bg-slate-50 transition-colors cursor-pointer group bg-white">
+                            <div class="poignee-drag cursor-grab p-1 mr-1 text-slate-300 hover:text-slate-500" @click.stop><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"></path></svg></div>
+                            <div class="p-1.5 bg-slate-100 text-slate-500 rounded-md mr-3"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg></div>
+                            <div class="flex-grow flex items-center justify-between pr-4">
+                                <div>
+                                    <h3 class="font-semibold text-slate-800 text-sm leading-tight">{{ element.nom }}</h3>
+                                    <p class="text-[10px]" :class="getQuantiteTotale(element.id) < element.seuil && element.seuil > 0 ? 'text-orange-600 font-bold' : 'text-slate-400'">Seuil: {{ element.seuil }}</p>
+                                </div>
+                                <div class="font-bold text-sm px-2 py-0.5 rounded-full border" :class="getQuantiteTotale(element.id) < element.seuil && element.seuil > 0 ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-800 border-slate-200'">
+                                    {{ getQuantiteTotale(element.id) }} <span class="text-[10px] font-normal opacity-70">en stock</span>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center gap-1">
+                                <button @click.stop="basculerFavori(element.id)" class="p-1.5 transition-colors rounded hover:bg-slate-100" :class="estFavori(element.id) ? 'text-yellow-400' : 'text-slate-300 hover:text-yellow-400'" title="Favori">
+                                    <svg v-if="estFavori(element.id)" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                                    <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path></svg>
+                                </button>
+
+                                <button @click.stop="ouvrirModaleEdition(element)" class="text-slate-300 hover:text-blue-600 p-1.5 transition-colors rounded hover:bg-blue-50" title="Modifier">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                </button>
+
+                                <button @click.stop="ouvrirModaleSuppression(element.id)" class="text-slate-300 hover:text-red-600 p-1.5 transition-colors rounded hover:bg-red-50" title="Supprimer">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div v-else-if="element.type === 'produit' && produitOuvert === element.id" id="produit-ouvert" class="bg-blue-50/30 flex flex-col border-y border-blue-200 shadow-inner">
+                            <div @click="basculerProduit(element.id)" class="flex items-center p-3 cursor-pointer hover:bg-blue-50 transition-colors">
+                                <div class="poignee-drag p-1 mr-1 text-blue-300" @click.stop><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"></path></svg></div>
+                                <div class="p-1.5 bg-blue-600 text-white rounded-md mr-3 shadow-sm"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg></div>
+                                <div class="flex-grow flex items-center justify-between pr-4">
+                                    <div><h3 class="font-bold text-blue-900 text-sm leading-tight">{{ element.nom }}</h3><p class="text-[10px] text-blue-500 font-medium">Seuil: {{ element.seuil }}</p></div>
+                                    <div class="font-black text-blue-700 text-sm bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200">{{ getQuantiteTotale(element.id) }} <span class="text-[10px] font-normal text-blue-500">en stock</span></div>
+                                </div>
+                                
+                                <div class="flex items-center gap-1">
+                                    <button @click.stop="basculerFavori(element.id)" class="p-1.5 transition-colors rounded hover:bg-blue-100" :class="estFavori(element.id) ? 'text-yellow-500' : 'text-blue-300 hover:text-yellow-500'" title="Favori">
+                                        <svg v-if="estFavori(element.id)" class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                                        <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path></svg>
+                                    </button>
+
+                                    <button @click.stop="ouvrirModaleEdition(element)" class="text-blue-400 hover:text-blue-700 p-1.5 transition-colors rounded hover:bg-blue-100" title="Modifier">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                    </button>
+
+                                    <button @click.stop="ouvrirModaleSuppression(element.id)" class="text-blue-300 hover:text-red-600 p-1.5 transition-colors rounded hover:bg-red-50" title="Supprimer">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="pl-12 pr-3 pb-3">
+                                <div class="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+                                    <table class="w-full text-left text-sm text-slate-600">
+                                        <tbody class="divide-y divide-slate-100">
+                                            <tr v-for="lot in getLots(element.id)" :key="lot.id" class="hover:bg-slate-50 transition-colors">
+                                                <td class="px-3 py-2">
+                                                    <div class="flex flex-col gap-0.5">
+                                                        <span v-if="lot.nom" class="font-bold text-slate-800 text-xs">{{ lot.nom }}</span>
+                                                        <span v-if="lot.datePeremption" class="font-medium text-[11px] flex items-center gap-1.5 whitespace-nowrap" :class="estPerime(lot.datePeremption) ? 'text-red-600 font-bold' : 'text-slate-700'">
+                                                            <svg class="w-3.5 h-3.5 shrink-0" :class="estPerime(lot.datePeremption) ? 'text-red-500' : 'text-slate-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                                            {{ formaterDate(lot.datePeremption) }}
+                                                        </span>
+                                                        <span v-if="lot.notes" class="text-[10px] text-slate-500 italic mt-0.5 leading-tight">{{ lot.notes }}</span>
+                                                    </div>
+                                                </td>
+                                                <td class="px-3 py-2 text-right">
+                                                    <div class="inline-flex items-center border border-slate-200 rounded text-xs bg-white overflow-hidden">
+                                                        <button v-if="lot.quantite > 0" @click="modifierQuantite(lot, -1)" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-orange-600 hover:bg-slate-50 font-bold border-r border-slate-100 transition-colors">-</button>
+                                                        <button v-else @click="ouvrirModaleSuppression(lot.id)" class="w-8 h-8 flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 border-r border-slate-100 transition-colors" title="Supprimer ce lot">
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                        </button>
+                                                        <span class="w-8 text-center font-mono font-bold" :class="lot.quantite === 0 ? 'text-red-500' : 'text-slate-800'">{{ lot.quantite }}</span>
+                                                        <button @click="modifierQuantite(lot, 1)" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-green-600 hover:bg-slate-50 font-bold border-l border-slate-100 transition-colors">+</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <div class="p-2 bg-slate-50 border-t border-slate-100">
+                                        <button @click="ouvrirModaleLot(element.id)" class="w-full py-1 text-xs text-blue-700 font-semibold border border-blue-200 border-dashed rounded hover:bg-blue-100 transition-colors flex items-center justify-center gap-1.5">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                            Ajouter lot
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    <div v-if="elementsCourants.length === 0" class="p-8 text-center text-slate-400 italic text-sm">Ce dossier est vide.</div>
+                </div>
+            </main>
+        </template> 
+
+        <div v-if="afficherModaleEdition" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+                <div class="px-5 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <h3 class="font-bold text-base text-slate-800">Modifier l'élément</h3>
+                    <button @click="fermerModaleEdition" class="text-slate-400 hover:text-slate-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div class="p-5 space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Nom de l'élément</label>
+                        <input v-model="formEditionNom" @keyup.enter="validerEdition" type="text" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div v-if="elementAEditer && elementAEditer.type === 'produit'">
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Seuil d'alerte critique</label>
+                        <input v-model="formEditionSeuil" @keyup.enter="validerEdition" type="number" min="0" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                </div>
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                    <button @click="fermerModaleEdition" class="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-md transition-colors">Annuler</button>
+                    <button @click="validerEdition" :disabled="!formEditionNom.trim()" class="px-3 py-1.5 text-sm font-semibold text-white bg-blue-700 rounded-md hover:bg-blue-800 transition-colors disabled:opacity-50 shadow-sm">Enregistrer</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="afficherModaleErreurSuppression" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-[pulse_0.1s_ease-in-out]">
+                <div class="px-5 py-3 border-b border-orange-100 flex justify-between items-center bg-orange-50">
+                    <h3 class="font-bold text-base text-orange-800 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        Action impossible
+                    </h3>
+                    <button @click="fermerModaleErreurSuppression" class="text-orange-400 hover:text-orange-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div class="p-5">
+                    <p class="text-sm text-slate-600">Impossible de supprimer cet élément car il contient encore d'autres éléments à l'intérieur. Veuillez le vider d'abord.</p>
+                </div>
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+                    <button @click="fermerModaleErreurSuppression" class="px-4 py-1.5 text-sm font-semibold text-white bg-orange-500 rounded-md hover:bg-orange-600 transition-colors shadow-sm">Compris</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="afficherModaleSuppressionProfil" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-[pulse_0.1s_ease-in-out]">
+                <div class="px-5 py-3 border-b border-red-100 flex justify-between items-center bg-red-50">
+                    <h3 class="font-bold text-base text-red-800 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        Supprimer le profil
+                    </h3>
+                    <button @click="fermerModaleSuppressionProfil" class="text-red-400 hover:text-red-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div class="p-5">
+                    <p class="text-sm text-slate-600">Êtes-vous sûr de vouloir supprimer le profil <strong class="text-slate-800">"{{ profilASupprimer }}"</strong> ? Ses favoris seront perdus, mais l'inventaire global ne sera pas touché.</p>
+                </div>
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                    <button @click="fermerModaleSuppressionProfil" class="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-md transition-colors">Annuler</button>
+                    <button @click="confirmerSuppressionProfil" class="px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors shadow-sm">Supprimer</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="afficherModaleSuppression" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-[pulse_0.1s_ease-in-out]">
+                <div class="px-5 py-3 border-b border-red-100 flex justify-between items-center bg-red-50">
+                    <h3 class="font-bold text-base text-red-800 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        Confirmer la suppression
+                    </h3>
+                    <button @click="fermerModaleSuppression" class="text-red-400 hover:text-red-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div class="p-5">
+                    <p class="text-sm text-slate-600">Êtes-vous sûr de vouloir supprimer définitivement cet élément ? Cette action est irréversible.</p>
+                </div>
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                    <button @click="fermerModaleSuppression" class="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-md transition-colors">Annuler</button>
+                    <button @click="confirmerSuppression" class="px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors shadow-sm">Supprimer</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="afficherModaleCreation" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+                <div class="px-5 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <h3 class="font-bold text-base text-slate-800">Créer un élément</h3>
+                    <button @click="fermerModaleCreation" class="text-slate-400 hover:text-slate-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div class="p-5 space-y-4">
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="border rounded-lg p-2.5 flex items-center justify-center gap-2 cursor-pointer hover:border-blue-400 transition-colors" :class="{'border-blue-500 bg-blue-50 ring-1 ring-blue-500 text-blue-700': formType === 'dossier', 'text-slate-400': formType !== 'dossier'}">
+                            <input type="radio" v-model="formType" value="dossier" class="hidden"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                            <span class="font-medium text-sm" :class="{'text-blue-900': formType === 'dossier', 'text-slate-800': formType !== 'dossier'}">Dossier</span>
+                        </label>
+                        <label class="border rounded-lg p-2.5 flex items-center justify-center gap-2 cursor-pointer hover:border-blue-400 transition-colors" :class="{'border-blue-500 bg-blue-50 ring-1 ring-blue-500 text-blue-700': formType === 'produit', 'text-slate-400': formType !== 'produit'}">
+                            <input type="radio" v-model="formType" value="produit" class="hidden"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                            <span class="font-medium text-sm" :class="{'text-blue-900': formType === 'produit', 'text-slate-800': formType !== 'produit'}">Produit</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Nom</label>
+                        <input v-model="formNom" type="text" placeholder="Ex: Conserves" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div v-if="formType === 'produit'">
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Seuil d'alerte</label>
+                        <input v-model="formSeuil" type="number" min="0" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                </div>
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                    <button @click="fermerModaleCreation" class="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-md transition-colors">Annuler</button>
+                    <button @click="validerCreation" :disabled="!formNom.trim()" class="px-3 py-1.5 text-sm font-semibold text-white bg-blue-700 rounded-md hover:bg-blue-800 transition-colors disabled:opacity-50">Créer</button>
+                </div>
+            </div>
+        </div>
+        
+        <div v-if="afficherModaleLot" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+                <div class="px-5 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <h3 class="font-bold text-base text-slate-800">Ajouter un lot</h3>
+                    <button @click="fermerModaleLot" class="text-slate-400 hover:text-slate-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div class="p-5 space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Nom du lot (Optionnel)</label>
+                        <input v-model="formLotNom" type="text" placeholder="Ex: Fournisseur X, Rayon A..." class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Quantité</label>
+                            <input v-model="formLotQuantite" type="number" min="1" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Expiration</label>
+                            <input ref="inputDateLot" type="text" placeholder="JJ/MM/AAAA" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Notes (Optionnelles)</label>
+                        <textarea v-model="formLotNotes" rows="2" placeholder="Informations supplémentaires..." class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"></textarea>
+                    </div>
+                </div>
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                    <button @click="fermerModaleLot" class="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-md transition-colors">Annuler</button>
+                    <button @click="validerLot" :disabled="formLotQuantite < 1" class="px-3 py-1.5 text-sm font-semibold text-white bg-blue-700 rounded-md hover:bg-blue-800 transition-colors disabled:opacity-50">Ajouter</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="app.js"></script>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').then(registration => {
+            console.log('ServiceWorker enregistré avec succès !');
+          }).catch(err => {
+            console.log('Échec de l\'enregistrement du ServiceWorker :', err);
+          });
+        });
+      }
+    </script>
+</body>
+</html>

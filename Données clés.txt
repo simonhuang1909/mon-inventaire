@@ -1,0 +1,7 @@
+const SUPABASE_URL = 'https://mptpfexprgiyuhezezja.supabase.co';
+const SUPABASE_KEY ='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1wdHBmZXhwcmdpeXVoZXplemphIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MzYzMTQsImV4cCI6MjA4OTUxMjMxNH0.77MH_rBspgnDD1C1upRhMqIIzjcE5LaDFe6bEpaF6s0';
+
+
+
+MDP Projet Supabase : ThisIsATest!
+MDP Inventaire: Jean
